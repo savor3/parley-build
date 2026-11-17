@@ -65,10 +65,12 @@ jobs:
           xcrun simctl privacy "$id" grant microphone com.storygame.parley || true
           xcrun simctl privacy "$id" grant speech-recognition com.storygame.parley || true
           tag=$(echo "$dev" | tr -cd 'A-Za-z0-9')
-          for s in live f2f meeting home plans setup; do
+          n=0
+          for s in home live f2f meeting plans setup home; do
+            n=$((n+1))
             SIMCTL_CHILD_PARLEY_DEMO=$s xcrun simctl launch --terminate-running-process "$id" com.storygame.parley
-            sleep 15
-            xcrun simctl io "$id" screenshot "shots/$tag-$s.png"
+            sleep 20
+            xcrun simctl io "$id" screenshot "shots/$tag-$s-$n.png"
           done
           xcrun simctl shutdown "$id"; xcrun simctl delete "$id"
           ls -la shots
