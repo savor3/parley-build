@@ -34,9 +34,12 @@ jobs:
     runs-on: macos-26
     steps:
       - name: Get the simulator build
-        env: { GH_TOKEN: "${{ github.token }}" }
+        env: { GH_TOKEN: "${{ github.token }}", SIM_KEY: "${{ secrets.SIM_KEY }}" }
         run: |
-          gh release download sim -R "$GITHUB_REPOSITORY" -p ParleySim.zip
+          gh release download sim -R "$GITHUB_REPOSITORY" -p ParleySim.zip.enc
+          printf '%s' "$SIM_KEY" > k.txt
+          openssl enc -d -aes-256-cbc -pbkdf2 -in ParleySim.zip.enc -out ParleySim.zip -pass file:k.txt
+          rm -f k.txt ParleySim.zip.enc
           unzip -q ParleySim.zip
           ls
       - name: Screenshots
