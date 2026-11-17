@@ -1,0 +1,74 @@
+name: mac
+on:
+  workflow_dispatch:
+    inputs:
+      what: { description: "icon, shots or both", default: "both" }
+
+jobs:
+  icon:
+    if: inputs.what != 'shots'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile the icon
+        run: |
+          set -e
+          mkdir -p Assets.xcassets/AppIcon.appiconset out
+          cp icon/AppIcon.png Assets.xcassets/AppIcon.appiconset/AppIcon.png
+          cat > Assets.xcassets/Contents.json <<'J'
+          {"info":{"author":"xcode","version":1}}
+          J
+          cat > Assets.xcassets/AppIcon.appiconset/Contents.json <<'J'
+          {"images":[{"filename":"AppIcon.png","idiom":"universal","platform":"ios","size":"1024x1024"}],"info":{"author":"xcode","version":1}}
+          J
+          xcrun actool Assets.xcassets --compile out --platform iphoneos --minimum-deployment-target 18.0 \
+            --app-icon AppIcon --output-partial-info-plist out/partial.plist \
+            --target-device iphone --output-format human-readable-text
+          ls -la out
+          xcodebuild -version > out/xcode.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: icon, path: out }
+
+  shots:
+    if: inputs.what != 'icon'
+    runs-on: macos-26
+    steps:
+      - name: Get the simulator build
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release download sim -R "$GITHUB_REPOSITORY" -p ParleySim.zip
+          unzip -q ParleySim.zip
+          ls
+      - name: Screenshots
+        run: |
+          set -e
+          xcrun simctl list runtimes
+          rt=$(xcrun simctl list runtimes -j | python3 -c 'import sys,json; r=[x for x in json.load(sys.stdin)["runtimes"] if x["platform"]=="iOS" and x["isAvailable"]]; print(r[-1]["identifier"])')
+          echo "runtime $rt"
+          mkdir -p shots
+          # 6.9" iPhone (first one this runner has)
+          dev=$(xcrun simctl list devicetypes -j | python3 -c '
+          import sys,json
+          names=[d["name"] for d in json.load(sys.stdin)["devicetypes"]]
+          for n in ["iPhone 17 Pro Max","iPhone 16 Pro Max"]:
+              if n in names: print(n); break')
+          echo "device $dev"
+          type=$(xcrun simctl list devicetypes -j | python3 -c "import sys,json; print([d['identifier'] for d in json.load(sys.stdin)['devicetypes'] if d['name']=='$dev'][0])")
+          id=$(xcrun simctl create "shot" "$type" "$rt")
+          xcrun simctl boot "$id"; xcrun simctl bootstatus "$id" -b
+          xcrun simctl ui "$id" appearance dark
+          xcrun simctl status_bar "$id" override --time "9:41" --dataNetwork wifi --wifiBars 3 --cellularBars 4 --batteryState charged --batteryLevel 100
+          xcrun simctl install "$id" Parley.app
+          xcrun simctl privacy "$id" grant microphone com.storygame.parley || true
+          xcrun simctl privacy "$id" grant speech-recognition com.storygame.parley || true
+          tag=$(echo "$dev" | tr -cd 'A-Za-z0-9')
+          for s in live f2f meeting home plans setup; do
+            SIMCTL_CHILD_PARLEY_DEMO=$s xcrun simctl launch --terminate-running-process "$id" com.storygame.parley
+            sleep 15
+            xcrun simctl io "$id" screenshot "shots/$tag-$s.png"
+          done
+          xcrun simctl shutdown "$id"; xcrun simctl delete "$id"
+          ls -la shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: shots, path: shots }
